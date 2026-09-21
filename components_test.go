@@ -89,3 +89,80 @@ func TestRecurrenceSetWithRDate(t *testing.T) {
 		t.Errorf("RecurrenceSet did not process RDATE correctly.\n got: %v\nwant: %v", gotOccurrences, wantOccurrences)
 	}
 }
+
+func TestNewTimezone(t *testing.T) {
+	type observance struct {
+		kind, start, from, to, name string
+	}
+
+	tests := []struct {
+		tzid string
+		want []observance
+	}{
+		{
+			tzid: "Europe/Berlin",
+			want: []observance{
+				{CompTimezoneStandard, "20251026T030000", "+0200", "+0100", "CET"},
+				{CompTimezoneDaylight, "20260329T020000", "+0100", "+0200", "CEST"},
+				{CompTimezoneStandard, "20261025T030000", "+0200", "+0100", "CET"},
+			},
+		},
+		{
+			tzid: "Australia/Sydney",
+			want: []observance{
+				{CompTimezoneDaylight, "20251005T020000", "+1000", "+1100", "AEDT"},
+				{CompTimezoneStandard, "20260405T030000", "+1100", "+1000", "AEST"},
+				{CompTimezoneDaylight, "20261004T020000", "+1000", "+1100", "AEDT"},
+			},
+		},
+		{
+			// No DST since 2022
+			tzid: "Asia/Tehran",
+			want: []observance{
+				{CompTimezoneStandard, "20220922T000000", "+0430", "+0330", "+0330"},
+			},
+		},
+		{
+			tzid: "UTC",
+			want: []observance{
+				{CompTimezoneStandard, "20260101T000000", "+0000", "+0000", "UTC"},
+			},
+		},
+	}
+
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2027, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	for _, test := range tests {
+		loc, err := time.LoadLocation(test.tzid)
+		if err != nil {
+			t.Fatalf("time.LoadLocation(%q) = %v", test.tzid, err)
+		}
+
+		tz := NewTimezone(loc, start, end)
+		if err := checkComponent(tz); err != nil {
+			t.Errorf("checkComponent(NewTimezone(%q)) = %v", test.tzid, err)
+		}
+		if tzid, _ := tz.Props.Text(PropTimezoneID); tzid != test.tzid {
+			t.Errorf("NewTimezone(%q): TZID = %q", test.tzid, tzid)
+		}
+
+		var got []observance
+		for _, child := range tz.Children {
+			if err := checkComponent(child); err != nil {
+				t.Errorf("checkComponent(NewTimezone(%q) child) = %v", test.tzid, err)
+			}
+			name, _ := child.Props.Text(PropTimezoneName)
+			got = append(got, observance{
+				kind:  child.Name,
+				start: child.Props.Get(PropDateTimeStart).Value,
+				from:  child.Props.Get(PropTimezoneOffsetFrom).Value,
+				to:    child.Props.Get(PropTimezoneOffsetTo).Value,
+				name:  name,
+			})
+		}
+		if !reflect.DeepEqual(got, test.want) {
+			t.Errorf("NewTimezone(%q) = %v, want %v", test.tzid, got, test.want)
+		}
+	}
+}

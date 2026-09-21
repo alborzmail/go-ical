@@ -135,3 +135,76 @@ func (e *Event) SetStatus(status EventStatus) {
 		e.Props.SetText(PropStatus, string(status))
 	}
 }
+
+// NewTimezone creates a VTIMEZONE component describing loc from start to end,
+// as defined in RFC 5545 section 3.6.5. The time zone identifier is
+// loc.String().
+//
+// The component contains the observance in effect at start, followed by one
+// STANDARD or DAYLIGHT observance per zone transition up to end. No recurrence
+// rule is written: times outside of the span aren't described.
+func NewTimezone(loc *time.Location, start, end time.Time) *Component {
+	tz := NewComponent(CompTimezone)
+	tz.Props.SetText(PropTimezoneID, loc.String())
+
+	t := start.In(loc)
+	for {
+		onset, next := t.ZoneBounds()
+		tz.Children = append(tz.Children, newObservance(t, onset))
+		if next.IsZero() || next.After(end) {
+			break
+		}
+		t = next
+	}
+
+	return tz
+}
+
+// newObservance creates the STANDARD or DAYLIGHT component in effect at t,
+// which began at onset. A zero onset means the observance has no beginning,
+// it's then described from t on.
+func newObservance(t, onset time.Time) *Component {
+	name, to := t.Zone()
+	from := to
+	if onset.IsZero() {
+		onset = t
+	} else {
+		_, from = onset.Add(-time.Second).Zone()
+	}
+
+	kind := CompTimezoneStandard
+	if t.IsDST() {
+		kind = CompTimezoneDaylight
+	}
+	comp := NewComponent(kind)
+
+	// The onset is a local time using the offset in effect before the change
+	dtstart := NewProp(PropDateTimeStart)
+	dtstart.Value = onset.In(time.FixedZone("", from)).Format(datetimeFormat)
+	comp.Props.Set(dtstart)
+
+	offsetFrom := NewProp(PropTimezoneOffsetFrom)
+	offsetFrom.Value = formatUTCOffset(from)
+	comp.Props.Set(offsetFrom)
+
+	offsetTo := NewProp(PropTimezoneOffsetTo)
+	offsetTo.Value = formatUTCOffset(to)
+	comp.Props.Set(offsetTo)
+
+	comp.Props.SetText(PropTimezoneName, name)
+
+	return comp
+}
+
+func formatUTCOffset(sec int) string {
+	sign := "+"
+	if sec < 0 {
+		sign = "-"
+		sec = -sec
+	}
+	s := fmt.Sprintf("%s%02d%02d", sign, sec/3600, sec%3600/60)
+	if sec%60 != 0 {
+		s += fmt.Sprintf("%02d", sec%60)
+	}
+	return s
+}

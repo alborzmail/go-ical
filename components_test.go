@@ -2,6 +2,7 @@ package ical
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -216,5 +217,74 @@ func TestCalendarAddTimezones(t *testing.T) {
 	}
 	if len(own.Children) != 0 {
 		t.Errorf("Calendar.AddTimezones() changed the VTIMEZONE the calendar had")
+	}
+}
+
+func TestComponentTriggerTime(t *testing.T) {
+	decode := func(s string) *Component {
+		cal, err := NewDecoder(strings.NewReader(strings.ReplaceAll(s, "\n", "\r\n"))).Decode()
+		if err != nil {
+			t.Fatalf("Decode() = %v", err)
+		}
+		return cal.Children[0]
+	}
+	event := decode(`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:test
+BEGIN:VEVENT
+UID:a
+DTSTAMP:20260101T000000Z
+DTSTART:20260601T100000Z
+DTEND:20260601T110000Z
+BEGIN:VALARM
+ACTION:DISPLAY
+TRIGGER:-PT15M
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+TRIGGER;RELATED=END:PT5M
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+TRIGGER;VALUE=DATE-TIME:20260531T080000Z
+END:VALARM
+END:VEVENT
+END:VCALENDAR
+`)
+	todo := decode(`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:test
+BEGIN:VTODO
+UID:b
+DTSTAMP:20260101T000000Z
+DTSTART:20260601T100000Z
+BEGIN:VALARM
+ACTION:DISPLAY
+TRIGGER;RELATED=END:-PT1H
+END:VALARM
+END:VTODO
+END:VCALENDAR
+`)
+
+	want := []time.Time{
+		time.Date(2026, time.June, 1, 9, 45, 0, 0, time.UTC),
+		time.Date(2026, time.June, 1, 11, 5, 0, 0, time.UTC),
+		time.Date(2026, time.May, 31, 8, 0, 0, 0, time.UTC),
+	}
+	for i, alarm := range event.Children {
+		got, err := event.TriggerTime(alarm, nil)
+		if err != nil || !got.Equal(want[i]) {
+			t.Errorf("VEVENT TriggerTime(alarm %d) = %v, %v, want %v", i, got, err, want[i])
+		}
+	}
+
+	// A to-do without DUE has no end to be related to.
+	if got, err := todo.TriggerTime(todo.Children[0], nil); err == nil {
+		t.Errorf("VTODO TriggerTime() = %v, want an error", got)
+	}
+	todo.Props.SetDateTime(PropDue, time.Date(2026, time.June, 2, 10, 0, 0, 0, time.UTC))
+	got, err := todo.TriggerTime(todo.Children[0], nil)
+	if want := time.Date(2026, time.June, 2, 9, 0, 0, 0, time.UTC); err != nil || !got.Equal(want) {
+		t.Errorf("VTODO TriggerTime() = %v, %v, want %v", got, err, want)
 	}
 }

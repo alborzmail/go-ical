@@ -55,6 +55,65 @@ func (comp *Component) RecurrenceSet(loc *time.Location) (*rrule.Set, error) {
 	return &ruleSet, nil
 }
 
+// TriggerTime returns when alarm, a VALARM of the VEVENT or VTODO comp, is
+// triggered (RFC 5545 section 3.8.6.3). A trigger related to the end uses
+// the event's end or the to-do's due time.
+func (comp *Component) TriggerTime(alarm *Component, loc *time.Location) (time.Time, error) {
+	trigger := alarm.Props.Get(PropTrigger)
+	if trigger == nil {
+		return time.Time{}, fmt.Errorf("ical: missing TRIGGER")
+	}
+	if trigger.ValueType() == ValueDateTime {
+		return trigger.DateTime(loc)
+	}
+	offset, err := trigger.Duration()
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	related := strings.ToUpper(trigger.Params.Get(ParamRelated))
+	var base time.Time
+	if related == "END" {
+		base, err = comp.end(loc)
+	} else {
+		base, err = comp.Props.DateTime(PropDateTimeStart, loc)
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if base.IsZero() {
+		return time.Time{}, fmt.Errorf("ical: TRIGGER related to a missing %s", comp.Name)
+	}
+	return base.Add(offset), nil
+}
+
+// end returns the end of a VEVENT or the due time of a VTODO, or the zero
+// time if it has none.
+func (comp *Component) end(loc *time.Location) (time.Time, error) {
+	switch comp.Name {
+	case CompEvent:
+		return (&Event{comp}).DateTimeEnd(loc)
+	case CompToDo:
+		if comp.Props.Get(PropDue) != nil {
+			return comp.Props.DateTime(PropDue, loc)
+		}
+		duration := comp.Props.Get(PropDuration)
+		if duration == nil {
+			return time.Time{}, nil
+		}
+		start, err := comp.Props.DateTime(PropDateTimeStart, loc)
+		if err != nil || start.IsZero() {
+			return time.Time{}, err
+		}
+		d, err := duration.Duration()
+		if err != nil {
+			return time.Time{}, err
+		}
+		return start.Add(d), nil
+	}
+	return time.Time{}, fmt.Errorf("ical: %s has no end", comp.Name)
+}
+
 // NewCalendar creates a new calendar object.
 func NewCalendar() *Calendar {
 	return &Calendar{NewComponent(CompCalendar)}

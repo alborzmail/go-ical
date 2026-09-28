@@ -370,3 +370,20 @@ END:VCALENDAR
 		t.Errorf("Calendar.SplitByUID() of a VTODO without UID succeeded")
 	}
 }
+
+func TestCalendarRemoveDuplicateTimezones(t *testing.T) {
+	zone := func(tzid string) *Component {
+		tz := NewComponent(CompTimezone)
+		tz.Props.SetText(PropTimezoneID, tzid)
+		return tz
+	}
+	first, event, second := zone("Europe/Berlin"), NewEvent().Component, zone("Asia/Tokyo")
+	cal := NewCalendar()
+	cal.Children = []*Component{first, event, zone("Europe/Berlin"), second, NewEvent().Component, zone("Asia/Tokyo")}
+
+	cal.RemoveDuplicateTimezones()
+
+	if len(cal.Children) != 4 || cal.Children[0] != first || cal.Children[1] != event || cal.Children[2] != second {
+		t.Errorf("Calendar.RemoveDuplicateTimezones() left %v", cal.Children)
+	}
+}

@@ -215,6 +215,25 @@ func (cal *Calendar) SplitByUID() (map[string]*Calendar, error) {
 	return objects, nil
 }
 
+// RemoveDuplicateTimezones keeps the first VTIMEZONE of each TZID, which
+// must be unique within a calendar (RFC 5545 section 3.8.3.1), as when the
+// components of several calendars are joined into one.
+func (cal *Calendar) RemoveDuplicateTimezones() {
+	seen := make(map[string]bool)
+	children := cal.Children[:0]
+	for _, child := range cal.Children {
+		if child.Name == CompTimezone {
+			tzid, _ := child.Props.Text(PropTimezoneID)
+			if seen[tzid] {
+				continue
+			}
+			seen[tzid] = true
+		}
+		children = append(children, child)
+	}
+	cal.Children = children
+}
+
 // addTimezoneIDs adds the TZID parameters used in comp and its children to ids.
 func addTimezoneIDs(ids map[string]bool, comp *Component) {
 	for _, props := range comp.Props {

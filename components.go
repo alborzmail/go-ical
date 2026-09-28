@@ -162,6 +162,59 @@ func (cal *Calendar) AddTimezones(start, end time.Time) {
 	}
 }
 
+// SplitByUID returns one calendar per UID, so that a recurring component
+// stays with its RECURRENCE-ID overrides (RFC 5545 section 3.8.4.4). Each
+// carries the calendar's properties and the VTIMEZONE components it refers
+// to. Every component but VTIMEZONE must have a UID.
+func (cal *Calendar) SplitByUID() (map[string]*Calendar, error) {
+	zones := make(map[string]*Component)
+	objects := make(map[string]*Calendar)
+	for _, child := range cal.Children {
+		if child.Name == CompTimezone {
+			tzid, _ := child.Props.Text(PropTimezoneID)
+			zones[tzid] = child
+			continue
+		}
+		uid, err := child.Props.Text(PropUID)
+		if err != nil {
+			return nil, err
+		}
+		if uid == "" {
+			return nil, fmt.Errorf("ical: %s without UID", child.Name)
+		}
+		object, ok := objects[uid]
+		if !ok {
+			object = NewCalendar()
+			for name, props := range cal.Props {
+				object.Props[name] = append([]Prop(nil), props...)
+			}
+			objects[uid] = object
+		}
+		object.Children = append(object.Children, child)
+	}
+
+	for _, object := range objects {
+		used := make(map[string]bool)
+		for _, child := range object.Children {
+			addTimezoneIDs(used, child)
+		}
+		tzids := make([]string, 0, len(used))
+		for tzid := range used {
+			tzids = append(tzids, tzid)
+		}
+		sort.Strings(tzids)
+
+		var children []*Component
+		for _, tzid := range tzids {
+			if zone, ok := zones[tzid]; ok {
+				children = append(children, zone)
+			}
+		}
+		object.Children = append(children, object.Children...)
+	}
+	return objects, nil
+}
+
 // addTimezoneIDs adds the TZID parameters used in comp and its children to ids.
 func addTimezoneIDs(ids map[string]bool, comp *Component) {
 	for _, props := range comp.Props {

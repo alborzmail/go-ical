@@ -1,6 +1,7 @@
 package ical
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -286,5 +287,86 @@ END:VCALENDAR
 	got, err := todo.TriggerTime(todo.Children[0], nil)
 	if want := time.Date(2026, time.June, 2, 9, 0, 0, 0, time.UTC); err != nil || !got.Equal(want) {
 		t.Errorf("VTODO TriggerTime() = %v, %v, want %v", got, err, want)
+	}
+}
+
+func TestCalendarSplitByUID(t *testing.T) {
+	cal, err := NewDecoder(strings.NewReader(strings.ReplaceAll(`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:test
+METHOD:PUBLISH
+BEGIN:VTIMEZONE
+TZID:Europe/Berlin
+BEGIN:STANDARD
+DTSTART:19701025T030000
+TZOFFSETFROM:+0200
+TZOFFSETTO:+0100
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VTIMEZONE
+TZID:Asia/Tokyo
+BEGIN:STANDARD
+DTSTART:19700101T000000
+TZOFFSETFROM:+0900
+TZOFFSETTO:+0900
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+UID:a
+DTSTAMP:20260101T000000Z
+DTSTART;TZID=Europe/Berlin:20260901T090000
+RRULE:FREQ=DAILY;COUNT=3
+END:VEVENT
+BEGIN:VTODO
+UID:b
+DTSTAMP:20260101T000000Z
+DUE:20260903T100000Z
+END:VTODO
+BEGIN:VEVENT
+UID:a
+DTSTAMP:20260101T000000Z
+RECURRENCE-ID;TZID=Europe/Berlin:20260902T090000
+DTSTART;TZID=Europe/Berlin:20260902T140000
+END:VEVENT
+END:VCALENDAR
+`, "\n", "\r\n"))).Decode()
+	if err != nil {
+		t.Fatalf("Decode() = %v", err)
+	}
+
+	objects, err := cal.SplitByUID()
+	if err != nil {
+		t.Fatalf("Calendar.SplitByUID() = %v", err)
+	}
+	if len(objects) != 2 {
+		t.Fatalf("Calendar.SplitByUID() gave %d calendars, want 2", len(objects))
+	}
+
+	names := func(cal *Calendar) []string {
+		var l []string
+		for _, child := range cal.Children {
+			l = append(l, child.Name)
+		}
+		return l
+	}
+	if got, want := names(objects["a"]), []string{CompTimezone, CompEvent, CompEvent}; !reflect.DeepEqual(got, want) {
+		t.Errorf("calendar a holds %v, want %v", got, want)
+	}
+	if got, want := names(objects["b"]), []string{CompToDo}; !reflect.DeepEqual(got, want) {
+		t.Errorf("calendar b holds %v, want %v", got, want)
+	}
+	if method, _ := objects["b"].Props.Text(PropMethod); method != "PUBLISH" {
+		t.Errorf("calendar b METHOD = %q, want the source's PUBLISH", method)
+	}
+	for uid, object := range objects {
+		var buf bytes.Buffer
+		if err := NewEncoder(&buf).Encode(object); err != nil {
+			t.Errorf("Encode(calendar %s) = %v", uid, err)
+		}
+	}
+
+	delete(cal.Children[3].Props, PropUID)
+	if _, err := cal.SplitByUID(); err == nil {
+		t.Errorf("Calendar.SplitByUID() of a VTODO without UID succeeded")
 	}
 }

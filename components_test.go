@@ -179,3 +179,42 @@ func TestNewTimezone(t *testing.T) {
 		}
 	}
 }
+
+func TestCalendarAddTimezones(t *testing.T) {
+	cal := NewCalendar()
+	event := NewEvent()
+	for _, tzid := range []string{"Europe/Berlin", "America/New_York", "Mars/Olympus"} {
+		prop := NewProp(PropDateTimeStart)
+		prop.Params.Set(ParamTimezoneID, tzid)
+		prop.Value = "20260601T100000"
+		event.Props.Add(prop)
+	}
+	// Nested as in RFC 7953
+	availability := NewComponent("VAVAILABILITY")
+	available := NewComponent("AVAILABLE")
+	dtstart := NewProp(PropDateTimeStart)
+	dtstart.Params.Set(ParamTimezoneID, "Asia/Tokyo")
+	dtstart.Value = "20260601T090000"
+	available.Props.Set(dtstart)
+	availability.Children = append(availability.Children, available)
+	own := NewComponent(CompTimezone)
+	own.Props.SetText(PropTimezoneID, "Europe/Berlin")
+	cal.Children = append(cal.Children, own, event.Component, availability)
+
+	cal.AddTimezones(time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), time.Date(2027, time.January, 1, 0, 0, 0, 0, time.UTC))
+
+	var got []string
+	for _, child := range cal.Children {
+		if child.Name == CompTimezone {
+			tzid, _ := child.Props.Text(PropTimezoneID)
+			got = append(got, tzid)
+		}
+	}
+	want := []string{"Europe/Berlin", "America/New_York", "Asia/Tokyo"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Calendar.AddTimezones() gave VTIMEZONEs %v, want %v", got, want)
+	}
+	if len(own.Children) != 0 {
+		t.Errorf("Calendar.AddTimezones() changed the VTIMEZONE the calendar had")
+	}
+}

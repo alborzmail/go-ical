@@ -2,6 +2,7 @@ package ical
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -68,6 +69,52 @@ func (cal *Calendar) Events() []Event {
 		}
 	}
 	return l
+}
+
+// AddTimezones adds a VTIMEZONE built by NewTimezone from start to end for
+// each TZID the calendar refers to but doesn't define, as RFC 5545 section
+// 3.2.19 requires. A TZID unknown to time.LoadLocation is left alone.
+func (cal *Calendar) AddTimezones(start, end time.Time) {
+	defined := make(map[string]bool)
+	used := make(map[string]bool)
+	for _, child := range cal.Children {
+		if child.Name == CompTimezone {
+			tzid, _ := child.Props.Text(PropTimezoneID)
+			defined[tzid] = true
+		} else {
+			addTimezoneIDs(used, child)
+		}
+	}
+
+	var missing []string
+	for tzid := range used {
+		if !defined[tzid] {
+			missing = append(missing, tzid)
+		}
+	}
+	sort.Strings(missing)
+
+	for _, tzid := range missing {
+		loc, err := time.LoadLocation(tzid)
+		if err != nil {
+			continue
+		}
+		cal.Children = append(cal.Children, NewTimezone(loc, start, end))
+	}
+}
+
+// addTimezoneIDs adds the TZID parameters used in comp and its children to ids.
+func addTimezoneIDs(ids map[string]bool, comp *Component) {
+	for _, props := range comp.Props {
+		for _, prop := range props {
+			if tzid := prop.Params.Get(ParamTimezoneID); tzid != "" {
+				ids[tzid] = true
+			}
+		}
+	}
+	for _, child := range comp.Children {
+		addTimezoneIDs(ids, child)
+	}
 }
 
 // Event represents a scheduled amount of time on a calendar.

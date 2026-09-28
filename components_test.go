@@ -92,7 +92,7 @@ func TestRecurrenceSetWithRDate(t *testing.T) {
 
 func TestNewTimezone(t *testing.T) {
 	type observance struct {
-		kind, start, from, to, name string
+		kind, start, from, to, name, rule string
 	}
 
 	tests := []struct {
@@ -102,30 +102,38 @@ func TestNewTimezone(t *testing.T) {
 		{
 			tzid: "Europe/Berlin",
 			want: []observance{
-				{CompTimezoneStandard, "20251026T030000", "+0200", "+0100", "CET"},
-				{CompTimezoneDaylight, "20260329T020000", "+0100", "+0200", "CEST"},
-				{CompTimezoneStandard, "20261025T030000", "+0200", "+0100", "CET"},
+				{CompTimezoneStandard, "20251026T030000", "+0200", "+0100", "CET", ""},
+				{CompTimezoneDaylight, "20260329T020000", "+0100", "+0200", "CEST", "FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU"},
+				{CompTimezoneStandard, "20261025T030000", "+0200", "+0100", "CET", "FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU"},
+			},
+		},
+		{
+			tzid: "America/New_York",
+			want: []observance{
+				{CompTimezoneStandard, "20251102T020000", "-0400", "-0500", "EST", ""},
+				{CompTimezoneDaylight, "20260308T020000", "-0500", "-0400", "EDT", "FREQ=YEARLY;BYMONTH=3;BYDAY=2SU"},
+				{CompTimezoneStandard, "20261101T020000", "-0400", "-0500", "EST", "FREQ=YEARLY;BYMONTH=11;BYDAY=1SU"},
 			},
 		},
 		{
 			tzid: "Australia/Sydney",
 			want: []observance{
-				{CompTimezoneDaylight, "20251005T020000", "+1000", "+1100", "AEDT"},
-				{CompTimezoneStandard, "20260405T030000", "+1100", "+1000", "AEST"},
-				{CompTimezoneDaylight, "20261004T020000", "+1000", "+1100", "AEDT"},
+				{CompTimezoneDaylight, "20251005T020000", "+1000", "+1100", "AEDT", ""},
+				{CompTimezoneStandard, "20260405T030000", "+1100", "+1000", "AEST", "FREQ=YEARLY;BYMONTH=4;BYDAY=1SU"},
+				{CompTimezoneDaylight, "20261004T020000", "+1000", "+1100", "AEDT", "FREQ=YEARLY;BYMONTH=10;BYDAY=1SU"},
 			},
 		},
 		{
 			// No DST since 2022
 			tzid: "Asia/Tehran",
 			want: []observance{
-				{CompTimezoneStandard, "20220922T000000", "+0430", "+0330", "+0330"},
+				{CompTimezoneStandard, "20220922T000000", "+0430", "+0330", "+0330", ""},
 			},
 		},
 		{
 			tzid: "UTC",
 			want: []observance{
-				{CompTimezoneStandard, "20260101T000000", "+0000", "+0000", "UTC"},
+				{CompTimezoneStandard, "20260101T000000", "+0000", "+0000", "UTC", ""},
 			},
 		},
 	}
@@ -153,12 +161,17 @@ func TestNewTimezone(t *testing.T) {
 				t.Errorf("checkComponent(NewTimezone(%q) child) = %v", test.tzid, err)
 			}
 			name, _ := child.Props.Text(PropTimezoneName)
+			var rule string
+			if prop := child.Props.Get(PropRecurrenceRule); prop != nil {
+				rule = prop.Value
+			}
 			got = append(got, observance{
 				kind:  child.Name,
 				start: child.Props.Get(PropDateTimeStart).Value,
 				from:  child.Props.Get(PropTimezoneOffsetFrom).Value,
 				to:    child.Props.Get(PropTimezoneOffsetTo).Value,
 				name:  name,
+				rule:  rule,
 			})
 		}
 		if !reflect.DeepEqual(got, test.want) {

@@ -141,23 +141,59 @@ func (e *Event) SetStatus(status EventStatus) {
 // loc.String().
 //
 // The component contains the observance in effect at start, followed by one
-// STANDARD or DAYLIGHT observance per zone transition up to end. No recurrence
-// rule is written: times outside of the span aren't described.
+// STANDARD or DAYLIGHT observance per zone transition up to end. If the span
+// holds both kinds and the zone keeps changing after end, the last observance
+// of each kind gets a yearly RRULE inferred from its onset, such as the last
+// Sunday of March, so that later times are described too.
 func NewTimezone(loc *time.Location, start, end time.Time) *Component {
 	tz := NewComponent(CompTimezone)
 	tz.Props.SetText(PropTimezoneID, loc.String())
 
+	last := make(map[string]*Component)
 	t := start.In(loc)
 	for {
 		onset, next := t.ZoneBounds()
-		tz.Children = append(tz.Children, newObservance(t, onset))
-		if next.IsZero() || next.After(end) {
+		observance := newObservance(t, onset)
+		tz.Children = append(tz.Children, observance)
+		if !onset.IsZero() {
+			last[observance.Name] = observance
+		}
+		if next.IsZero() {
+			return tz
+		}
+		if next.After(end) {
 			break
 		}
 		t = next
 	}
 
+	if len(last) == 2 {
+		for _, observance := range last {
+			observance.Props.Set(yearlyRule(observance))
+		}
+	}
 	return tz
+}
+
+// yearlyRule returns the RRULE repeating the onset of observance on the same
+// weekday of the same week of its month: the last Sunday of March rather than
+// the 29th.
+func yearlyRule(observance *Component) *Prop {
+	onset, err := observance.Props.DateTime(PropDateTimeStart, time.UTC)
+	if err != nil {
+		panic(err)
+	}
+
+	week := (onset.Day()-1)/7 + 1
+	daysInMonth := time.Date(onset.Year(), onset.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	if onset.Day()+7 > daysInMonth {
+		week = -1
+	}
+	weekday := strings.ToUpper(onset.Weekday().String()[:2])
+
+	rule := NewProp(PropRecurrenceRule)
+	rule.Value = fmt.Sprintf("FREQ=YEARLY;BYMONTH=%d;BYDAY=%d%s", onset.Month(), week, weekday)
+	return rule
 }
 
 // newObservance creates the STANDARD or DAYLIGHT component in effect at t,

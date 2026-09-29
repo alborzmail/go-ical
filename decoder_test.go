@@ -92,6 +92,17 @@ END:VCALENDAR
 	}
 }
 
+func TestDecoderCutOff(t *testing.T) {
+	for _, s := range []string{
+		"BEGIN:VCALENDAR\r\nVERSION:2.0\r\n",
+		"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:a\r\nEND:VEVENT\r\n",
+	} {
+		if _, err := NewDecoder(strings.NewReader(s)).Decode(); err != io.ErrUnexpectedEOF {
+			t.Errorf("Decode(%q) = %v, want io.ErrUnexpectedEOF", s, err)
+		}
+	}
+}
+
 func FuzzDecoder(f *testing.F) {
 	f.Add(exampleCalendarStr)
 	f.Add("BEGIN:VCALENDAR\r\nX;A=\"b\"c:v\r\nEND:VCALENDAR\r\n")

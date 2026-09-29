@@ -214,7 +214,9 @@ Loop:
 	for {
 		var err error
 		prop, err = dec.decodeContentLine()
-		if err != nil {
+		if err == io.EOF {
+			return nil, io.ErrUnexpectedEOF
+		} else if err != nil {
 			return nil, err
 		}
 

@@ -91,3 +91,17 @@ END:VCALENDAR
 		t.Errorf("DecodeCalendar() = \n%#v\nbut want:\n%#v", cal, calendar)
 	}
 }
+
+func FuzzDecoder(f *testing.F) {
+	f.Add(exampleCalendarStr)
+	f.Add("BEGIN:VCALENDAR\r\nX;A=\"b\"c:v\r\nEND:VCALENDAR\r\n")
+	f.Add("BEGIN:VCALENDAR\r\nX;A=b\r\nEND:VCALENDAR\r\n")
+	f.Fuzz(func(t *testing.T, s string) {
+		dec := NewDecoder(strings.NewReader(s))
+		for {
+			if _, err := dec.Decode(); err != nil {
+				return
+			}
+		}
+	})
+}

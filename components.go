@@ -122,6 +122,97 @@ func (prop *Prop) period(loc *time.Location) (recur.Period, error) {
 	return r, err
 }
 
+// Series is a recurring component and the components overriding its
+// instances (RFC 5545 section 3.8.4.4).
+type Series struct {
+	recur.Series
+	master    *Component
+	overrides []*Component
+}
+
+// Component returns the component inst is an instance of.
+func (s *Series) Component(inst recur.Instance) *Component {
+	if inst.Override < 0 {
+		return s.master
+	}
+	return s.overrides[inst.Override]
+}
+
+// Series gathers the components of cal with this UID into one series: the
+// one without RECURRENCE-ID, if any, and those overriding its instances.
+// Floating times and dates are read in loc.
+func (cal *Calendar) Series(uid string, loc *time.Location) (*Series, error) {
+	s := new(Series)
+	for _, child := range cal.Children {
+		prop := child.Props.Get(PropUID)
+		if prop == nil {
+			continue
+		}
+		id, err := prop.Text()
+		if err != nil {
+			return nil, err
+		}
+		if id != uid {
+			continue
+		}
+		span, err := child.span(loc)
+		if err != nil {
+			return nil, err
+		}
+		rid := child.Props.Get(PropRecurrenceID)
+		if rid == nil {
+			if s.master != nil {
+				return nil, fmt.Errorf("ical: two %s with UID %q and no RECURRENCE-ID", child.Name, uid)
+			}
+			if s.Set, err = child.recurrenceSet(loc); err != nil {
+				return nil, err
+			}
+			s.master, s.Duration = child, span
+			continue
+		}
+		o := recur.Override{Future: strings.EqualFold(rid.Params.Get(ParamRange), "THISANDFUTURE"), Duration: span}
+		if o.ID, err = rid.DateTime(loc); err != nil {
+			return nil, err
+		}
+		if o.Start, err = child.Props.DateTime(PropDateTimeStart, loc); err != nil {
+			return nil, err
+		}
+		s.Overrides = append(s.Overrides, o)
+		s.overrides = append(s.overrides, child)
+	}
+	if s.master == nil && len(s.overrides) == 0 {
+		return nil, fmt.Errorf("ical: no component with UID %q", uid)
+	}
+	return s, nil
+}
+
+// span is how long each instance of comp lasts: up to DTEND or DUE, for
+// DURATION, or for a date without either the whole day (RFC 5545 section
+// 3.6.1).
+func (comp *Component) span(loc *time.Location) (time.Duration, error) {
+	start := comp.Props.Get(PropDateTimeStart)
+	if start == nil {
+		return 0, nil
+	}
+	for _, name := range []string{PropDateTimeEnd, PropDue} {
+		if prop := comp.Props.Get(name); prop != nil {
+			s, err := start.DateTime(loc)
+			if err != nil {
+				return 0, err
+			}
+			end, err := prop.DateTime(loc)
+			return end.Sub(s), err
+		}
+	}
+	if prop := comp.Props.Get(PropDuration); prop != nil {
+		return prop.Duration()
+	}
+	if start.ValueType() == ValueDate {
+		return 24 * time.Hour, nil
+	}
+	return 0, nil
+}
+
 // TriggerTime returns when alarm, a VALARM of the VEVENT or VTODO comp, is
 // triggered (RFC 5545 section 3.8.6.3). A trigger related to the end uses
 // the event's end or the to-do's due time.

@@ -391,3 +391,57 @@ func TestCalendarRemoveDuplicateTimezones(t *testing.T) {
 	}
 }
 
+// EXDATE lists two dates on one line, RDATE a period, and the override
+// moves its instance and every later one (RFC 5545 section 3.8.4.4).
+func TestCalendarSeries(t *testing.T) {
+	cal, err := NewDecoder(strings.NewReader(strings.ReplaceAll(`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:test
+BEGIN:VEVENT
+UID:a
+DTSTAMP:20260101T000000Z
+DTSTART:20260601T100000Z
+DTEND:20260601T110000Z
+RRULE:FREQ=DAILY;COUNT=5
+EXDATE:20260602T100000Z,20260603T100000Z
+RDATE;VALUE=PERIOD:20260601T150000Z/PT3H
+END:VEVENT
+BEGIN:VEVENT
+UID:a
+DTSTAMP:20260101T000000Z
+RECURRENCE-ID;RANGE=THISANDFUTURE:20260604T100000Z
+DTSTART:20260604T120000Z
+DTEND:20260604T123000Z
+END:VEVENT
+END:VCALENDAR
+`, "\n", "\r\n"))).Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	series, err := cal.Series("a", time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(d, h, m int) time.Time { return time.Date(2026, time.June, d, h, m, 0, 0, time.UTC) }
+	type instance struct {
+		start, end time.Time
+		comp       *Component
+	}
+	want := []instance{
+		{at(1, 10, 0), at(1, 11, 0), cal.Children[0]},
+		{at(1, 15, 0), at(1, 18, 0), cal.Children[0]},
+		{at(4, 12, 0), at(4, 12, 30), cal.Children[1]},
+		{at(5, 12, 0), at(5, 12, 30), cal.Children[1]},
+	}
+	seq, err := series.Between(at(1, 0, 0), at(30, 0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []instance
+	for inst := range seq {
+		got = append(got, instance{inst.Start, inst.End, series.Component(inst)})
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Series.Between() = %v, want %v", got, want)
+	}
+}

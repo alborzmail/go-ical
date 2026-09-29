@@ -3,11 +3,13 @@ package ical
 import (
 	"bytes"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/teambition/rrule-go"
+	"github.com/alborzmail/go-recur"
+	"github.com/alborzmail/go-recur/rscale"
 )
 
 func TestRecurrenceSet(t *testing.T) {
@@ -17,17 +19,14 @@ func TestRecurrenceSet(t *testing.T) {
 	}
 	event := events[0]
 
-	wantRecurrenceSet := &rrule.Set{}
-	rrule, err := rrule.NewRRule(rrule.ROption{
-		Freq:      rrule.YEARLY,
-		Bymonth:   []int{3},
-		Byweekday: []rrule.Weekday{rrule.SU.Nth(3)},
-	})
-	if err != nil {
-		t.Errorf("Could not build rrule: %v", err) // Should never really happen.
+	wantRecurrenceSet := &recur.Set{
+		Start: recur.Value{Time: time.Date(1996, 9, 18, 14, 30, 0, 0, time.UTC)},
+		Rule: &recur.Rule{
+			Freq:    recur.Yearly,
+			ByMonth: []rscale.Month{{N: 3}},
+			ByDay:   []recur.WeekdayNum{{N: 3, Day: time.Sunday}},
+		},
 	}
-	wantRecurrenceSet.DTStart(time.Date(1996, 9, 18, 14, 30, 0, 0, time.UTC))
-	wantRecurrenceSet.RRule(rrule)
 
 	if gotRecurrenceSet, err := event.RecurrenceSet(nil); err != nil {
 		t.Errorf("Props.RecurrenceSet() = %v", err)
@@ -84,7 +83,11 @@ func TestRecurrenceSetWithRDate(t *testing.T) {
 	}
 
 	// 3. Get the actual occurrences from the generated set
-	gotOccurrences := gotRecurrenceSet.All()
+	all, err := gotRecurrenceSet.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotOccurrences := slices.Collect(all)
 
 	// 4. Compare the results
 	if !reflect.DeepEqual(gotOccurrences, wantOccurrences) {
@@ -387,3 +390,4 @@ func TestCalendarRemoveDuplicateTimezones(t *testing.T) {
 		t.Errorf("Calendar.RemoveDuplicateTimezones() left %v", cal.Children)
 	}
 }
+

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teambition/rrule-go"
+	"github.com/alborzmail/go-recur"
 )
 
 // Calendar is the top-level iCalendar object.
@@ -14,45 +14,112 @@ type Calendar struct {
 	*Component
 }
 
-// RecurrenceSet returns the Recurrence Set for this component.
-func (comp *Component) RecurrenceSet(loc *time.Location) (*rrule.Set, error) {
-	roption, err := comp.Props.RecurrenceRule()
-	if err != nil {
-		return nil, fmt.Errorf("ical: error parsing recurrence: %v", err)
-	}
-	if roption == nil {
+// RecurrenceSet returns the recurrence set of comp, or nil if it has neither
+// RRULE nor RDATE. Floating times and dates are read in loc.
+func (comp *Component) RecurrenceSet(loc *time.Location) (*recur.Set, error) {
+	if comp.Props.Get(PropRecurrenceRule) == nil && comp.Props.Get(PropRecurrenceDates) == nil {
 		return nil, nil
 	}
-	dateTime, err := comp.Props.DateTime(PropDateTimeStart, loc)
+	set, err := comp.recurrenceSet(loc)
 	if err != nil {
-		return nil, fmt.Errorf("ical: error parsing start time: %v", err)
+		return nil, err
 	}
+	return &set, nil
+}
 
-	rule, err := rrule.NewRRule(*roption)
+// recurrenceSet returns the recurrence set of comp, which for a component
+// without RRULE or RDATE is its DTSTART alone, and empty without DTSTART.
+func (comp *Component) recurrenceSet(loc *time.Location) (recur.Set, error) {
+	var set recur.Set
+	rule, err := comp.Props.RecurrenceRule()
 	if err != nil {
-		return nil, fmt.Errorf("ical: error buildling rrule: %v", err)
+		return set, err
 	}
-
-	ruleSet := rrule.Set{}
-	ruleSet.RRule(rule)
-	ruleSet.DTStart(dateTime)
-
-	for _, exdateProp := range comp.Props[PropExceptionDates] {
-		exdate, err := exdateProp.DateTime(loc)
-		if err != nil {
-			return nil, fmt.Errorf("ical: error parsing exdate: %v", err)
+	dtstart := comp.Props.Get(PropDateTimeStart)
+	if dtstart == nil {
+		if rule != nil || comp.Props.Get(PropRecurrenceDates) != nil {
+			return set, fmt.Errorf("ical: %s recurs without DTSTART", comp.Name)
 		}
-		ruleSet.ExDate(exdate)
+		return set, nil
 	}
-	for _, rdateProp := range comp.Props[PropRecurrenceDates] {
-		rdate, err := rdateProp.DateTime(loc)
-		if err != nil {
-			return nil, fmt.Errorf("ical: error parsing rdate: %v", err)
+	set.Rule = rule
+	if set.Start, err = dtstart.value(loc); err != nil {
+		return set, fmt.Errorf("ical: error parsing start time: %v", err)
+	}
+	for _, prop := range comp.Props[PropRecurrenceDates] {
+		for _, v := range prop.list() {
+			var r recur.Period
+			if prop.ValueType() == ValuePeriod {
+				r, err = v.period(loc)
+			} else {
+				r.Start, err = v.value(loc)
+			}
+			if err != nil {
+				return set, fmt.Errorf("ical: error parsing rdate: %v", err)
+			}
+			set.RDate = append(set.RDate, r)
 		}
-		ruleSet.RDate(rdate)
 	}
+	for _, prop := range comp.Props[PropExceptionDates] {
+		for _, v := range prop.list() {
+			exdate, err := v.value(loc)
+			if err != nil {
+				return set, fmt.Errorf("ical: error parsing exdate: %v", err)
+			}
+			set.ExDate = append(set.ExDate, exdate)
+		}
+	}
+	return set, nil
+}
 
-	return &ruleSet, nil
+// list splits a property holding several values, as RDATE and EXDATE may,
+// into one property per value.
+func (prop *Prop) list() []*Prop {
+	var l []*Prop
+	for _, v := range strings.Split(prop.Value, ",") {
+		l = append(l, &Prop{Name: prop.Name, Params: prop.Params, Value: v})
+	}
+	return l
+}
+
+// value reads a DATE or DATE-TIME as the recurrence engine takes it.
+func (prop *Prop) value(loc *time.Location) (recur.Value, error) {
+	t, err := prop.DateTime(loc)
+	kind := recur.Floating
+	switch {
+	case prop.ValueType() == ValueDate:
+		kind = recur.Date
+	case strings.HasSuffix(prop.Value, "Z"), prop.Params.Get(ParamTimezoneID) != "":
+		kind = recur.DateTime
+	}
+	return recur.Value{Time: t, Kind: kind}, err
+}
+
+// period reads a PERIOD: a start and its end or duration (RFC 5545
+// section 3.3.9).
+func (prop *Prop) period(loc *time.Location) (recur.Period, error) {
+	var r recur.Period
+	start, end, ok := strings.Cut(prop.Value, "/")
+	if !ok {
+		return r, fmt.Errorf("ical: invalid period: %q", prop.Value)
+	}
+	at := &Prop{Name: prop.Name, Params: Params{}, Value: start}
+	if tzid := prop.Params.Get(ParamTimezoneID); tzid != "" {
+		at.Params.Set(ParamTimezoneID, tzid)
+	}
+	var err error
+	if r.Start, err = at.value(loc); err != nil {
+		return r, err
+	}
+	if strings.HasPrefix(strings.TrimLeft(end, "+-"), "P") {
+		p := durationParser{strings.ToUpper(end)}
+		d, err := p.parseDuration()
+		r.End = recur.Value{Time: r.Start.Add(d), Kind: r.Start.Kind}
+		return r, err
+	}
+	at.Value = end
+	r.End, err = at.value(loc)
+	return r, err
 }
 
 // TriggerTime returns when alarm, a VALARM of the VEVENT or VTODO comp, is

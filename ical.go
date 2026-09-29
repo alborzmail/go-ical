@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/teambition/rrule-go"
+	"github.com/alborzmail/go-recur"
 )
 
 // MIME type and file extension for iCal, defined in RFC 5545 section 8.1.
@@ -467,29 +467,8 @@ func (props Props) URI(name string) (*url.URL, error) {
 	return nil, nil
 }
 
-// Returns an ROption based on the events RRULE.
-//
-// This object can then be used to construct `RRule` instances for different
-// fields, for example, an rrule based on `DTSTART`:
-//
-//	roption, err := props.RecurrenceRule()
-//	if err != nil {
-//		log.Fatalf("error parsing rrule:", err)
-//	}
-//	if roption == nil {
-//		log.Fatalf("props have no RRULE")
-//	}
-//
-//	dtstart, err := props.DateTime("DTSTART", nil)
-//	if err != nil {
-//		log.Fatalf("error parsing dtstart:", err)
-//	}
-//	roption.Dtstart = dtstart
-//
-//	return rrule.NewRRule(*roption)
-//
-// This object can then be used to calculate the `DTSTART` of all recurrances.
-func (props Props) RecurrenceRule() (*rrule.ROption, error) {
+// RecurrenceRule parses the RRULE property, or returns nil if there is none.
+func (props Props) RecurrenceRule() (*recur.Rule, error) {
 	prop := props.Get(PropRecurrenceRule)
 	if prop == nil {
 		return nil, nil
@@ -497,20 +476,18 @@ func (props Props) RecurrenceRule() (*rrule.ROption, error) {
 	if err := prop.expectValueType(ValueRecurrence); err != nil {
 		return nil, err
 	}
-
-	roption, err := rrule.StrToROption(prop.Value)
+	rule, err := recur.Parse(prop.Value)
 	if err != nil {
-		return nil, fmt.Errorf("ical: error parsing rrule: %v", err)
+		return nil, fmt.Errorf("ical: error parsing rrule: %w", err)
 	}
-
-	return roption, nil
+	return &rule, nil
 }
 
-func (props Props) SetRecurrenceRule(rule *rrule.ROption) {
+func (props Props) SetRecurrenceRule(rule *recur.Rule) {
 	if rule != nil {
 		prop := NewProp(PropRecurrenceRule)
 		prop.SetValueType(ValueRecurrence)
-		prop.Value = rule.RRuleString()
+		prop.Value = rule.String()
 		props.Set(prop)
 	} else {
 		props.Del(PropRecurrenceRule)

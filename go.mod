@@ -1,5 +1,5 @@
 module github.com/emersion/go-ical
 
-go 1.19
+go 1.27.1
 
-require github.com/teambition/rrule-go v1.8.2
+require github.com/alborzmail/go-recur v0.0.0-20260929133629-dcb73b0bbb94

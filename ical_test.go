@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teambition/rrule-go"
+	"github.com/alborzmail/go-recur"
+	"github.com/alborzmail/go-recur/rscale"
 )
 
 func toCRLF(s string) string {
@@ -374,10 +375,10 @@ func TestRecurrenceRule(t *testing.T) {
 	}
 	props := events[0].Props
 
-	wantRecurrenceRule := &rrule.ROption{
-		Freq:      rrule.YEARLY,
-		Bymonth:   []int{3},
-		Byweekday: []rrule.Weekday{rrule.SU.Nth(3)},
+	wantRecurrenceRule := &recur.Rule{
+		Freq:    recur.Yearly,
+		ByMonth: []rscale.Month{{N: 3}},
+		ByDay:   []recur.WeekdayNum{{N: 3, Day: time.Sunday}},
 	}
 	if roption, err := props.RecurrenceRule(); err != nil {
 		t.Errorf("Props.RecurrenceRule() = %v", err)
@@ -413,10 +414,10 @@ func TestRecurrenceRuleSetToNil(t *testing.T) {
 }
 
 func TestRecurrenceRuleRoundTrip(t *testing.T) {
-	recurrenceRule := &rrule.ROption{
-		Freq:      rrule.YEARLY,
-		Bymonth:   []int{3},
-		Byweekday: []rrule.Weekday{rrule.SU.Nth(3)},
+	recurrenceRule := &recur.Rule{
+		Freq:    recur.Yearly,
+		ByMonth: []rscale.Month{{N: 3}},
+		ByDay:   []recur.WeekdayNum{{N: 3, Day: time.Sunday}},
 	}
 
 	props := Props{}

@@ -77,7 +77,7 @@ func (comp *Component) recurrenceSet(loc *time.Location) (recur.Set, error) {
 func (prop *Prop) list() []*Prop {
 	var l []*Prop
 	for _, v := range strings.Split(prop.Value, ",") {
-		l = append(l, &Prop{Name: prop.Name, Params: prop.Params, Value: v})
+		l = append(l, &Prop{Name: prop.Name, Params: prop.Params, Value: v, zones: prop.zones})
 	}
 	return l
 }
@@ -103,7 +103,7 @@ func (prop *Prop) period(loc *time.Location) (recur.Period, error) {
 	if !ok {
 		return r, fmt.Errorf("ical: invalid period: %q", prop.Value)
 	}
-	at := &Prop{Name: prop.Name, Params: Params{}, Value: start}
+	at := &Prop{Name: prop.Name, Params: Params{}, Value: start, zones: prop.zones}
 	if tzid := prop.Params.Get(ParamTimezoneID); tzid != "" {
 		at.Params.Set(ParamTimezoneID, tzid)
 	}

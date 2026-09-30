@@ -58,6 +58,8 @@ type Prop struct {
 	Name   string
 	Params Params
 	Value  string
+
+	zones zones
 }
 
 // NewProp creates a new property with the specified name.
@@ -145,13 +147,14 @@ func (prop *Prop) DateTime(loc *time.Location) (time.Time, error) {
 		if valueLength == len(datetimeUTCFormat) {
 			return time.ParseInLocation(datetimeUTCFormat, prop.Value, time.UTC)
 		}
-		// Use the TZID location, if available.
 		if tzid := prop.Params.Get(PropTimezoneID); tzid != "" {
-			tzLoc, err := time.LoadLocation(tzid)
+			tzLoc, err := prop.location(tzid)
 			if err != nil {
 				return time.Time{}, err
 			}
-			loc = tzLoc
+			if tzLoc != nil {
+				loc = tzLoc
+			}
 		}
 		return time.ParseInLocation(datetimeFormat, prop.Value, loc)
 	}
@@ -170,7 +173,10 @@ func (prop *Prop) SetDateTime(t time.Time) {
 	case nil, time.UTC:
 		prop.Value = t.Format(datetimeUTCFormat)
 	default:
-		prop.Params.Set(PropTimezoneID, t.Location().String())
+		// A location read from a VTIMEZONE reads back by its name too.
+		name, loc := t.Location().String(), t.Location()
+		prop.Params.Set(PropTimezoneID, name)
+		prop.zones = zones{name: func() (*time.Location, error) { return loc, nil }}
 		prop.Value = t.Format(datetimeFormat)
 	}
 }

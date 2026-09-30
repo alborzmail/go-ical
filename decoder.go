@@ -268,5 +268,6 @@ func (dec *Decoder) Decode() (*Calendar, error) {
 		return nil, fmt.Errorf("ical: invalid toplevel component name: expected %q, got %q", CompCalendar, comp.Name)
 	}
 
+	bindZones(comp)
 	return &Calendar{comp}, nil
 }
